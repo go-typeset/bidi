@@ -57,15 +57,26 @@ func main() {
 | `ResolveLevels(text []rune, base Direction) []Level` | resolved embedding level per rune |
 | `BaseLevel(text []rune, base Direction) Level` | paragraph level (rules P2/P3) |
 | `Reorder(text []rune, levels []Level) []int` | rule L2 visual-order permutation |
+| `ReorderWithMarks(text []rune, levels []Level) []int` | L2 + rule L3 combining-mark reorder |
 | `VisualOrder(text string, base Direction) string` | resolve + reorder convenience |
+| `Paragraphs(text []rune) [][]rune` | rule P1 paragraph splitting |
+| `VisualParagraphs(text string, base Direction) []string` | full display pipeline per paragraph |
+| `Mirror(r rune) rune` | rule L4 mirrored glyph of a rune |
+| `MirrorRunes(text []rune, levels []Level) []rune` | mirror characters at RTL levels |
+| `JoinForms(text []rune) []JoinForm` | Arabic cursive form per character |
+| `PresentationForm(r rune, form JoinForm) rune` | Arabic Presentation Forms-B fallback |
+| `JoinForm` | `Isolated`, `Initial`, `Medial`, `Final` |
 | `Direction` | `LeftToRight`, `RightToLeft`, `Auto` |
 | `Level` | embedding level (even = LTR, odd = RTL) |
 
 ## Implemented vs deferred
 
-**Implemented** — the algorithm runs through rule **L2**, the full extent
-covered by the Unicode conformance file `BidiCharacterTest.txt`:
+**Implemented** — the core algorithm runs through rule **L2**, the full extent
+covered by the Unicode conformance file `BidiCharacterTest.txt`, with **P1**,
+**L3**, **L4** and Arabic joining layered on top for display:
 
+- **P1** paragraph splitting on `Paragraph_Separator` (`Paragraphs`), with
+  CR+LF treated as a single separator.
 - **P2, P3** base paragraph level from the first strong character.
 - **X1–X8** explicit embeddings *and* isolates (with overflow handling and the
   directional status stack); **X9** removal of the deprecated formatting
@@ -75,15 +86,21 @@ covered by the Unicode conformance file `BidiCharacterTest.txt`:
   equivalence), **N1–N2** neutral types.
 - **I1, I2** implicit levels.
 - **L1** separator / trailing-whitespace reset, **L2** reordering.
+- **L3** combining marks kept adjacent to their base after reordering
+  (`ReorderWithMarks`; plain `Reorder` stays L2-only to match the conformance
+  data).
+- **L4** glyph mirroring for characters at right-to-left levels (`Mirror`,
+  `MirrorRunes`).
+- Arabic cursive **joining** at the Unicode level (`JoinForms`), plus a static
+  Arabic Presentation Forms-B fallback (`PresentationForm`).
 
-**Deferred** (out of scope for a bidi engine):
+**Deferred**:
 
-- **L3** (combining marks) and **L4** (glyph mirroring of paired brackets and
-  other mirrored characters) — these belong to the rendering / shaping stage, so
-  `VisualOrder` does not substitute mirrored glyphs.
-- Arabic cursive **shaping / joining** — the job of a shaper, not bidi.
-- **P1** paragraph splitting — the caller drives it; the API operates per
-  paragraph (an inline `Paragraph_Separator` is still handled by X8/L1).
+- Full contextual **shaping** — `JoinForms` resolves each letter's
+  isolated/initial/medial/final form, but real rendering needs the font's GSUB
+  `init`/`medi`/`fina`/`isol` features and contextual ligatures (such as the
+  mandatory LAM+ALEF ligature). `PresentationForm` is only a per-letter fallback
+  for the common letters, not a shaper.
 
 ## Conformance
 
@@ -100,9 +117,10 @@ curated representative subset is embedded under [`testdata`](testdata) and run b
 go run ./cmd/genbidi .
 ```
 
-This fetches the latest `DerivedBidiClass.txt` and `BidiBrackets.txt` from the
-Unicode Character Database and rewrites `bidiclass_table.go` and
-`bidibrackets_table.go`.
+This fetches the latest `DerivedBidiClass.txt`, `BidiBrackets.txt`,
+`BidiMirroring.txt` and `ArabicShaping.txt` from the Unicode Character Database
+and rewrites `bidiclass_table.go`, `bidibrackets_table.go`,
+`bidimirror_table.go` and `joining_table.go`.
 
 ## License
 

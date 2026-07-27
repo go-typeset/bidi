@@ -18,17 +18,25 @@
 //     resolved embedding [Level] of each rune.
 //   - [BaseLevel] reports the paragraph embedding level chosen by rules P2/P3.
 //   - [Reorder] applies rule L2 to a level slice, returning the visual-order
-//     index permutation.
+//     index permutation; [ReorderWithMarks] additionally applies the rule L3
+//     combining-mark refinement.
 //   - [VisualOrder] is a convenience that resolves and reorders a string in one
 //     call.
+//   - [Paragraphs] splits text into paragraphs (rule P1), and
+//     [VisualParagraphs] runs the whole display pipeline per paragraph.
+//   - [Mirror] and [MirrorRunes] apply glyph mirroring (rule L4).
+//   - [JoinForms] resolves Arabic cursive presentation forms, and
+//     [PresentationForm] maps a letter to the Arabic Presentation Forms-B block.
 //   - [Direction] selects the base direction: [LeftToRight], [RightToLeft] or
 //     [Auto].
 //
 // # Implemented rules
 //
-// The algorithm is implemented through rule L2, which is the full extent
-// verified by the Unicode conformance file BidiCharacterTest.txt:
+// The core algorithm runs through rule L2, the full extent verified by the
+// Unicode conformance file BidiCharacterTest.txt, with rules L3, L4 and P1 and
+// Arabic joining layered on top for display:
 //
+//   - P1: splitting text into paragraphs on Paragraph_Separator ([Paragraphs]).
 //   - P2, P3: paragraph embedding level from the first strong character.
 //   - X1–X8: explicit embeddings (LRE/RLE/LRO/RLO/PDF) and isolates
 //     (LRI/RLI/FSI/PDI), including overflow handling and the directional
@@ -43,6 +51,15 @@
 //   - I1, I2: the implicit level rules.
 //   - L1: resetting separators and trailing whitespace to the paragraph level.
 //   - L2: reordering to visual order.
+//   - L3: keeping combining marks adjacent to their base after reordering
+//     ([ReorderWithMarks]); the plain [Reorder] applies L2 only, matching the
+//     conformance data.
+//   - L4: substituting mirrored glyphs for characters at right-to-left levels
+//     ([Mirror], [MirrorRunes]).
+//
+// It also provides the Unicode-level Arabic cursive joining algorithm
+// ([JoinForms]) and a static fallback to the Arabic Presentation Forms-B block
+// ([PresentationForm]).
 //
 // The package is validated against the full BidiCharacterTest.txt (all cases
 // pass); a curated subset is embedded under testdata for the committed test
@@ -50,12 +67,9 @@
 //
 // # Deferred
 //
-//   - L3 (combining marks) and L4 (mirroring of paired-bracket and other
-//     mirrored glyphs) are out of scope: they belong to the rendering/shaping
-//     stage. [VisualOrder] therefore does not substitute mirrored glyphs.
-//   - Arabic cursive shaping and joining are the job of a shaper, not the
-//     bidirectional algorithm, and are out of scope here.
-//   - Rule P1 (splitting text into paragraphs on Paragraph_Separator) is the
-//     caller's responsibility; the API operates on a single paragraph, though a
-//     Paragraph_Separator encountered inline is handled by rule X8/L1.
+//   - Full contextual shaping: [JoinForms] resolves the isolated/initial/
+//     medial/final form of each Arabic letter, but real display requires the
+//     font's GSUB init/medi/fina/isol features and ligatures (such as the
+//     mandatory LAM+ALEF ligature). [PresentationForm] is only a static
+//     per-letter fallback for the common letters, not a shaper.
 package bidi
