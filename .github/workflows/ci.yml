@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GOWORK: "off"
+  CGO_ENABLED: "0"
+
+jobs:
+  test:
+    name: Build + test + exact 100% coverage gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          check-latest: true
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^testdata/' || true)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Test with coverage
+        run: go test -covermode=set -coverprofile=coverage.out ./...
+
+      - name: Assert exact 100% statement coverage
+        run: |
+          below=$(go tool cover -func=coverage.out | awk '$NF!="100.0%"')
+          if [ -n "$below" ]; then
+            echo "::error::statements below 100% coverage:"
+            echo "$below"
+            exit 1
+          fi
+          echo "all statements at 100.0% coverage"
+
+      - name: Cross-compile (6 64-bit arches + wasm + darwin + windows)
+        run: |
+          for arch in amd64 arm64 riscv64 loong64 ppc64le s390x; do
+            echo "== linux/$arch =="
+            GOOS=linux GOARCH=$arch go build ./...
+          done
+          GOOS=js      GOARCH=wasm  go build ./...
+          GOOS=darwin  GOARCH=arm64 go build ./...
+          GOOS=windows GOARCH=amd64 go build ./...
