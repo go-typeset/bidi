@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-3-Clause license that can be
 // found in the LICENSE file at the root of this repository.
 
-// Command genbidi fetches the Unicode Character Database DerivedBidiClass.txt
-// and BidiBrackets.txt files and emits the compact Go lookup tables used by
-// package bidi: bidiclass_table.go (a sorted Bidi_Class range table) and
-// bidibrackets_table.go (the paired-bracket table for rule N0).
+// Command genbidi fetches the Unicode Character Database DerivedBidiClass.txt,
+// BidiBrackets.txt, BidiMirroring.txt and ArabicShaping.txt files and emits the
+// compact Go lookup tables used by package bidi: bidiclass_table.go (a sorted
+// Bidi_Class range table), bidibrackets_table.go (the paired-bracket table for
+// rule N0), bidimirror_table.go (the glyph-mirroring table for rule L4) and
+// joining_table.go (the Arabic joining-type table).
 //
 // Usage:
 //
@@ -31,6 +33,12 @@ const sourceURL = "https://www.unicode.org/Public/UCD/latest/ucd/extracted/Deriv
 
 // bracketURL is the canonical location of the paired-bracket data.
 const bracketURL = "https://www.unicode.org/Public/UCD/latest/ucd/BidiBrackets.txt"
+
+// mirrorURL is the canonical location of the glyph-mirroring data (rule L4).
+const mirrorURL = "https://www.unicode.org/Public/UCD/latest/ucd/BidiMirroring.txt"
+
+// shapeURL is the canonical location of the Arabic joining-type data.
+const shapeURL = "https://www.unicode.org/Public/UCD/latest/ucd/ArabicShaping.txt"
 
 // maxRune is the highest Unicode code point, inclusive.
 const maxRune = 0x10FFFF
@@ -83,7 +91,38 @@ func run(argv []string) int {
 		fmt.Fprintln(stderr, "genbidi: write brackets:", err)
 		return 1
 	}
-	fmt.Fprintf(stderr, "genbidi: wrote %d ranges and %d brackets\n", len(ranges), len(brackets))
+	// Glyph-mirroring table (rule L4).
+	mdata, err := fetch(mirrorURL)
+	if err != nil {
+		fmt.Fprintln(stderr, "genbidi: fetch mirror:", err)
+		return 1
+	}
+	mirrors, err := parseMirror(mdata)
+	if err != nil {
+		fmt.Fprintln(stderr, "genbidi: parse mirror:", err)
+		return 1
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bidimirror_table.go"), generateMirror(mirrors), 0o644); err != nil {
+		fmt.Fprintln(stderr, "genbidi: write mirror:", err)
+		return 1
+	}
+	// Arabic joining-type table.
+	sdata, err := fetch(shapeURL)
+	if err != nil {
+		fmt.Fprintln(stderr, "genbidi: fetch shaping:", err)
+		return 1
+	}
+	joins, err := parseShaping(sdata)
+	if err != nil {
+		fmt.Fprintln(stderr, "genbidi: parse shaping:", err)
+		return 1
+	}
+	if err := os.WriteFile(filepath.Join(dir, "joining_table.go"), generateShaping(joins), 0o644); err != nil {
+		fmt.Fprintln(stderr, "genbidi: write shaping:", err)
+		return 1
+	}
+	fmt.Fprintf(stderr, "genbidi: wrote %d ranges, %d brackets, %d mirrors and %d joining types\n",
+		len(ranges), len(brackets), len(mirrors), len(joins))
 	return 0
 }
 
@@ -317,6 +356,129 @@ func generateBrackets(rows []bracketRow) []byte {
 	}
 	b.WriteString("}\n")
 	return []byte(b.String())
+}
+
+// mirrorRow is one glyph-mirroring entry from BidiMirroring.txt.
+type mirrorRow struct {
+	cp     uint32
+	mirror uint32
+}
+
+// parseMirror parses BidiMirroring.txt into its mirroring rows. Each data line
+// is "CP; MIRROR # comment": the code point and the code point of the character
+// with the mirrored glyph.
+func parseMirror(data []byte) ([]mirrorRow, error) {
+	var rows []mirrorRow
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := raw
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		f := strings.Split(line, ";")
+		if len(f) != 2 {
+			return nil, fmt.Errorf("malformed mirror line %q", raw)
+		}
+		cp, err := parseHex(f[0])
+		if err != nil {
+			return nil, err
+		}
+		mirror, err := parseHex(f[1])
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, mirrorRow{cp, mirror})
+	}
+	return rows, nil
+}
+
+// generateMirror renders rows as the bidimirror_table.go source file.
+func generateMirror(rows []mirrorRow) []byte {
+	var b strings.Builder
+	writeHeader(&b, "BidiMirroring.txt")
+	b.WriteString("// mirrorData maps each character with the Bidi_Mirrored property to the code\n")
+	b.WriteString("// point of the character with the mirrored glyph, as used by rule L4.\n")
+	b.WriteString("var mirrorData = map[rune]rune{\n")
+	for _, r := range rows {
+		fmt.Fprintf(&b, "\t0x%04X: 0x%04X,\n", r.cp, r.mirror)
+	}
+	b.WriteString("}\n")
+	return []byte(b.String())
+}
+
+// shapeRow is one Arabic joining entry: a code point and its joining-type
+// constant name (for example "joinD").
+type shapeRow struct {
+	cp   uint32
+	kind string
+}
+
+// joinKinds maps the ArabicShaping.txt joining-type letters to the joining-type
+// constant names used by package bidi. The default (non-joining, "U") is
+// omitted from the generated table because lookups fall back to it.
+var joinKinds = map[string]string{
+	"R": "joinR", "L": "joinL", "D": "joinD",
+	"C": "joinC", "U": "joinU", "T": "joinT",
+}
+
+// parseShaping parses ArabicShaping.txt into its joining rows, dropping the
+// non-joining ("U") default entries. Each data line is
+// "CP; NAME; TYPE; GROUP".
+func parseShaping(data []byte) ([]shapeRow, error) {
+	var rows []shapeRow
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := raw
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		f := strings.Split(line, ";")
+		if len(f) != 4 {
+			return nil, fmt.Errorf("malformed shaping line %q", raw)
+		}
+		cp, err := parseHex(f[0])
+		if err != nil {
+			return nil, err
+		}
+		name, ok := joinKinds[strings.TrimSpace(f[2])]
+		if !ok {
+			return nil, fmt.Errorf("unknown joining type %q", f[2])
+		}
+		if name == "joinU" {
+			continue // default, omitted from the table
+		}
+		rows = append(rows, shapeRow{cp, name})
+	}
+	return rows, nil
+}
+
+// generateShaping renders rows as the joining_table.go source file.
+func generateShaping(rows []shapeRow) []byte {
+	var b strings.Builder
+	writeHeader(&b, "ArabicShaping.txt")
+	b.WriteString("// joiningData maps each character with a non-default Arabic joining type to\n")
+	b.WriteString("// that type. Characters absent from the table are non-joining (joinU).\n")
+	b.WriteString("var joiningData = map[rune]JoiningType{\n")
+	for _, r := range rows {
+		fmt.Fprintf(&b, "\t0x%04X: %s,\n", r.cp, r.kind)
+	}
+	b.WriteString("}\n")
+	return []byte(b.String())
+}
+
+// writeHeader writes the shared license and "generated from" banner naming the
+// source UCD file, followed by the package clause.
+func writeHeader(b *strings.Builder, src string) {
+	b.WriteString("// Copyright (c) 2026 the go-opentype/bidi authors. All rights reserved.\n")
+	b.WriteString("// Use of this source code is governed by a BSD-3-Clause license that can be\n")
+	b.WriteString("// found in the LICENSE file at the root of this repository.\n\n")
+	b.WriteString("// Code generated by cmd/genbidi from the Unicode Character Database\n")
+	fmt.Fprintf(b, "// %s. DO NOT EDIT.\n\n", src)
+	b.WriteString("package bidi\n\n")
 }
 
 // generate renders ranges as the bidiclass_table.go source file.

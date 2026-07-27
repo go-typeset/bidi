@@ -27,6 +27,18 @@ const sampleBrackets = `# BidiBrackets sample
 0029; 0028; c # RIGHT PARENTHESIS
 `
 
+const sampleMirror = `# BidiMirroring sample
+0028; 0029 # LEFT PARENTHESIS
+0029; 0028 # RIGHT PARENTHESIS
+`
+
+const sampleShaping = `# ArabicShaping sample
+0627; ALEF; R; ALEF
+0628; BEH; D; BEH
+0640; TATWEEL; C; NO_JOINING_GROUP
+0600; NUMBER SIGN; U; No_Joining_Group
+`
+
 // fakeBody wraps a string as an http response body.
 func fakeBody(s string) io.ReadCloser { return io.NopCloser(strings.NewReader(s)) }
 
@@ -66,13 +78,21 @@ func withStubs(t *testing.T, get func(string) (*http.Response, error)) {
 	t.Cleanup(func() { httpGet, stderr = oldGet, oldErr })
 }
 
+// allOK returns the four success responses run() consumes in order.
+func allOK() func(string) (*http.Response, error) {
+	return sequenceGetter(okResp(sampleClass), okResp(sampleBrackets), okResp(sampleMirror), okResp(sampleShaping))
+}
+
 func TestRunSuccess(t *testing.T) {
 	dir := t.TempDir()
-	withStubs(t, sequenceGetter(okResp(sampleClass), okResp(sampleBrackets)))
+	withStubs(t, allOK())
 	if code := run([]string{"genbidi", dir}); code != 0 {
 		t.Fatalf("run code=%d", code)
 	}
-	for _, name := range []string{"bidiclass_table.go", "bidibrackets_table.go"} {
+	for _, name := range []string{
+		"bidiclass_table.go", "bidibrackets_table.go",
+		"bidimirror_table.go", "joining_table.go",
+	} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("missing %s: %v", name, err)
 		}
@@ -86,7 +106,7 @@ func TestRunDefaultDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(wd) })
-	withStubs(t, sequenceGetter(okResp(sampleClass), okResp(sampleBrackets)))
+	withStubs(t, allOK())
 	if code := run([]string{"genbidi"}); code != 0 {
 		t.Fatalf("run code=%d", code)
 	}
@@ -134,6 +154,50 @@ func TestRunErrors(t *testing.T) {
 		}
 		withStubs(t, sequenceGetter(okResp(sampleClass), okResp(sampleBrackets)))
 		if run([]string{"g", bdir}) != 1 {
+			t.Fatal("want 1")
+		}
+	})
+	t.Run("fetch mirror", func(t *testing.T) {
+		withStubs(t, sequenceGetter(okResp(sampleClass), okResp(sampleBrackets), errResp()))
+		if run([]string{"g", dir}) != 1 {
+			t.Fatal("want 1")
+		}
+	})
+	t.Run("parse mirror", func(t *testing.T) {
+		withStubs(t, sequenceGetter(okResp(sampleClass), okResp(sampleBrackets), okResp("0028\n")))
+		if run([]string{"g", dir}) != 1 {
+			t.Fatal("want 1")
+		}
+	})
+	t.Run("write mirror", func(t *testing.T) {
+		mdir := t.TempDir()
+		if err := os.Mkdir(filepath.Join(mdir, "bidimirror_table.go"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		withStubs(t, sequenceGetter(okResp(sampleClass), okResp(sampleBrackets), okResp(sampleMirror)))
+		if run([]string{"g", mdir}) != 1 {
+			t.Fatal("want 1")
+		}
+	})
+	t.Run("fetch shaping", func(t *testing.T) {
+		withStubs(t, sequenceGetter(okResp(sampleClass), okResp(sampleBrackets), okResp(sampleMirror), errResp()))
+		if run([]string{"g", dir}) != 1 {
+			t.Fatal("want 1")
+		}
+	})
+	t.Run("parse shaping", func(t *testing.T) {
+		withStubs(t, sequenceGetter(okResp(sampleClass), okResp(sampleBrackets), okResp(sampleMirror), okResp("0627; ALEF; Z; X\n")))
+		if run([]string{"g", dir}) != 1 {
+			t.Fatal("want 1")
+		}
+	})
+	t.Run("write shaping", func(t *testing.T) {
+		sdir := t.TempDir()
+		if err := os.Mkdir(filepath.Join(sdir, "joining_table.go"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		withStubs(t, allOK())
+		if run([]string{"g", sdir}) != 1 {
 			t.Fatal("want 1")
 		}
 	})
@@ -280,6 +344,56 @@ func TestGenerate(t *testing.T) {
 	if !strings.Contains(string(bsrc), "bracketData") {
 		t.Error("generated bracket source malformed")
 	}
+	msrc := generateMirror([]mirrorRow{{0x28, 0x29}})
+	if !strings.Contains(string(msrc), "mirrorData") || !strings.Contains(string(msrc), "BidiMirroring.txt") {
+		t.Error("generated mirror source malformed")
+	}
+	ssrc := generateShaping([]shapeRow{{0x0628, "joinD"}})
+	if !strings.Contains(string(ssrc), "joiningData") || !strings.Contains(string(ssrc), "ArabicShaping.txt") {
+		t.Error("generated shaping source malformed")
+	}
+}
+
+func TestParseMirror(t *testing.T) {
+	rows, err := parseMirror([]byte(sampleMirror))
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("rows=%d err=%v", len(rows), err)
+	}
+	if rows[0].cp != 0x28 || rows[0].mirror != 0x29 {
+		t.Errorf("row0=%+v", rows[0])
+	}
+	for _, bad := range []string{
+		"0028\n",     // too few fields
+		"ZZ; 0029\n", // bad cp hex
+		"0028; ZZ\n", // bad mirror hex
+	} {
+		if _, err := parseMirror([]byte(bad)); err == nil {
+			t.Errorf("want error for %q", bad)
+		}
+	}
+}
+
+func TestParseShaping(t *testing.T) {
+	rows, err := parseShaping([]byte(sampleShaping))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The "U" (non-joining) row is dropped, leaving R, D and C.
+	if len(rows) != 3 {
+		t.Fatalf("rows=%d want 3", len(rows))
+	}
+	if rows[0].cp != 0x0627 || rows[0].kind != "joinR" {
+		t.Errorf("row0=%+v", rows[0])
+	}
+	for _, bad := range []string{
+		"0627; ALEF; R\n",       // too few fields
+		"ZZ; ALEF; R; ALEF\n",   // bad cp hex
+		"0627; ALEF; Z; ALEF\n", // unknown joining type
+	} {
+		if _, err := parseShaping([]byte(bad)); err == nil {
+			t.Errorf("want error for %q", bad)
+		}
+	}
 }
 
 func TestMainFunc(t *testing.T) {
@@ -288,7 +402,7 @@ func TestMainFunc(t *testing.T) {
 	code := -1
 	osExit = func(c int) { code = c }
 	args = []string{"genbidi", dir}
-	withStubs(t, sequenceGetter(okResp(sampleClass), okResp(sampleBrackets)))
+	withStubs(t, allOK())
 	t.Cleanup(func() { osExit, args = oldExit, oldArgs })
 	main()
 	if code != 0 {
