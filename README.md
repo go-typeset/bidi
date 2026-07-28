@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/go-opentype/bidi/actions/workflows/ci.yml/badge.svg)](https://github.com/go-opentype/bidi/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/go-opentype/bidi.svg)](https://pkg.go.dev/github.com/go-opentype/bidi)
+![coverage](https://img.shields.io/badge/coverage-100%25-1a7f37)
+![go](https://img.shields.io/badge/Go-1.26.4%2B-00ADD8?logo=go&logoColor=white)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
 A pure-Go, `CGO_ENABLED=0`, **standard-library-only** implementation of the
@@ -47,6 +49,10 @@ func main() {
 	fmt.Println(bidi.ClassOf('א')) // R
 }
 ```
+
+See [`example_test.go`](./example_test.go) for runnable examples of each of
+the functions above, and `go doc github.com/go-opentype/bidi` for the full
+reference.
 
 ## API
 
@@ -121,6 +127,23 @@ This fetches the latest `DerivedBidiClass.txt`, `BidiBrackets.txt`,
 `BidiMirroring.txt` and `ArabicShaping.txt` from the Unicode Character Database
 and rewrites `bidiclass_table.go`, `bidibrackets_table.go`,
 `bidimirror_table.go` and `joining_table.go`.
+
+## Part of the go-opentype pure-Go text stack
+
+`go-opentype/bidi` is the Unicode Bidirectional Algorithm (UBA) layer of a
+dependency-free text stack:
+
+- **[opentype](https://github.com/go-opentype/opentype)** — the parsing,
+  GSUB/GPOS shaping and rasterising engine.
+- **[bidi](https://github.com/go-opentype/bidi)** (this repo) — orders mixed
+  left-to-right/right-to-left text into visual order before it is shaped.
+- **[shape](https://github.com/go-opentype/shape)** — a HarfBuzz-lite
+  complex-script shaper (Arabic, Indic, Hangul, USE, Egyptian
+  hieroglyphs, ...) built on `opentype`'s GSUB/GPOS engine; it consumes this
+  package's join forms and reordering for right-to-left scripts.
+- **[fonts](https://github.com/go-opentype/fonts)** — 36 bundled OFL/BSD
+  font families, per-family lazily `go:embed`-ed, ready to feed to
+  `opentype.Parse`.
 
 ## License
 
