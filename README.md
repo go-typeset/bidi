@@ -141,9 +141,9 @@ dependency-free text stack:
   complex-script shaper (Arabic, Indic, Hangul, USE, Egyptian
   hieroglyphs, ...) built on `opentype`'s GSUB/GPOS engine; it consumes this
   package's join forms and reordering for right-to-left scripts.
-- **[fonts](https://github.com/go-opentype/fonts)** — 36 bundled OFL/BSD
-  font families, per-family lazily `go:embed`-ed, ready to feed to
-  `opentype.Parse`.
+- **[fonts](https://github.com/go-opentype/fonts)** — 46 bundled OFL/BSD
+  font families (Latin, non-Latin scripts and CJK), per-family lazily
+  `go:embed`-ed, ready to feed to `opentype.Parse`.
 
 ## License
 
