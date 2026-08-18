@@ -1,7 +1,7 @@
 # bidi
 
-[![CI](https://github.com/go-opentype/bidi/actions/workflows/ci.yml/badge.svg)](https://github.com/go-opentype/bidi/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/go-opentype/bidi.svg)](https://pkg.go.dev/github.com/go-opentype/bidi)
+[![CI](https://github.com/go-typeset/bidi/actions/workflows/ci.yml/badge.svg)](https://github.com/go-typeset/bidi/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/go-typeset/bidi.svg)](https://pkg.go.dev/github.com/go-typeset/bidi)
 ![coverage](https://img.shields.io/badge/coverage-100%25-1a7f37)
 ![go](https://img.shields.io/badge/Go-1.26.4%2B-00ADD8?logo=go&logoColor=white)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
@@ -18,7 +18,7 @@ so the package builds anywhere the standard library does.
 ## Install
 
 ```sh
-go get github.com/go-opentype/bidi
+go get github.com/go-typeset/bidi
 ```
 
 ## Usage
@@ -29,7 +29,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/go-opentype/bidi"
+	"github.com/go-typeset/bidi"
 )
 
 func main() {
@@ -51,7 +51,7 @@ func main() {
 ```
 
 See [`example_test.go`](./example_test.go) for runnable examples of each of
-the functions above, and `go doc github.com/go-opentype/bidi` for the full
+the functions above, and `go doc github.com/go-typeset/bidi` for the full
 reference.
 
 ## API
@@ -135,7 +135,7 @@ dependency-free text stack:
 
 - **[opentype](https://github.com/go-opentype/opentype)** — the parsing,
   GSUB/GPOS shaping and rasterising engine.
-- **[bidi](https://github.com/go-opentype/bidi)** (this repo) — orders mixed
+- **[bidi](https://github.com/go-typeset/bidi)** (this repo) — orders mixed
   left-to-right/right-to-left text into visual order before it is shaped.
 - **[shape](https://github.com/go-opentype/shape)** — a HarfBuzz-lite
   complex-script shaper (Arabic, Indic, Hangul, USE, Egyptian

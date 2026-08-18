@@ -1,3 +1,3 @@
-module github.com/go-opentype/bidi
+module github.com/go-typeset/bidi
 
 go 1.26.4

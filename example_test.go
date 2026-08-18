@@ -7,7 +7,7 @@ package bidi_test
 import (
 	"fmt"
 
-	"github.com/go-opentype/bidi"
+	"github.com/go-typeset/bidi"
 )
 
 // ExampleVisualOrder reorders a logical-order string mixing English (L) and
